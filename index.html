@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Borrower Copilot</title>
+<style>
+  :root{
+    --bg:#FAF8F5; --ink:#1F2937; --muted:#6B7280; --accent:#0F5132; --accent-soft:#E7F3EC;
+    --rule:#E5E1D8; --warn:#8A4B12; --warn-soft:#FBEEDC; --danger:#8B2E2E; --danger-soft:#FBEAEA;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;line-height:1.5}
+  .wrap{max-width:38rem;margin:0 auto;padding:2rem 1.25rem 4rem}
+  h1{font-size:1.5rem;margin:0 0 .25rem}
+  .sub{color:var(--muted);font-size:.95rem;margin:0 0 1.75rem}
+  .progress{height:4px;background:var(--rule);border-radius:2px;margin-bottom:2rem;overflow:hidden}
+  .progress > div{height:100%;background:var(--accent);transition:width .25s ease}
+  .card{background:#fff;border:1px solid var(--rule);border-radius:10px;padding:1.5rem}
+  label{display:block;font-weight:600;margin-bottom:.6rem;font-size:1.05rem}
+  .why{color:var(--muted);font-size:.85rem;margin:-.3rem 0 .8rem}
+  input[type=number], input[type=text]{
+    width:100%;padding:.65rem .75rem;border:1px solid var(--rule);border-radius:6px;font-size:1rem;
+  }
+  .opts{display:flex;flex-direction:column;gap:.5rem}
+  .opt{border:1px solid var(--rule);border-radius:6px;padding:.7rem .85rem;cursor:pointer;transition:border-color .15s}
+  .opt:hover{border-color:var(--accent)}
+  .opt.selected{border-color:var(--accent);background:var(--accent-soft)}
+  .nav{display:flex;justify-content:space-between;margin-top:1.5rem}
+  button{font:inherit;cursor:pointer;border-radius:6px;padding:.6rem 1.1rem;border:1px solid var(--rule);background:#fff}
+  button.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  .skip{background:none;border:none;color:var(--muted);text-decoration:underline;padding:0}
+
+  .out{border:1px solid var(--rule);border-radius:10px;padding:1.25rem;margin-bottom:1rem;background:#fff}
+  .out h2{font-size:1rem;color:var(--muted);margin:0 0 .5rem;font-weight:600}
+  .out .big{font-size:1.35rem;font-weight:700;margin:.15rem 0}
+  .out .reason{color:var(--muted);font-size:.9rem}
+  .tag{display:inline-block;padding:.2rem .6rem;border-radius:20px;font-size:.8rem;font-weight:600;margin-bottom:.5rem}
+  .tag.borrow{background:var(--accent-soft);color:var(--accent)}
+  .tag.less{background:var(--warn-soft);color:var(--warn)}
+  .tag.dont{background:var(--danger-soft);color:var(--danger)}
+  .split{display:flex;gap:1rem;flex-wrap:wrap}
+  .split > div{flex:1;min-width:10rem}
+  .split .label{font-size:.8rem;color:var(--muted)}
+  .split .val{font-size:1.15rem;font-weight:700}
+  .neg{background:#1F2937;color:#fff;border-radius:10px;padding:1.5rem;margin-top:1.5rem}
+  .neg h2{color:#D1D5DB;margin:0 0 .75rem;font-size:.95rem;font-weight:600}
+  .neg .row{display:flex;justify-content:space-between;padding:.5rem 0;border-bottom:1px solid #374151;font-size:.95rem}
+  .neg .row:last-child{border-bottom:none}
+  .restart{margin-top:1.5rem}
+</style>
+</head>
+<body>
+<div class="wrap" id="app"></div>
+
+<script src="rules.js"></script>
+<script src="app.js"></script>
+<script>
+const root = document.getElementById("app");
+
+function render() {
+  const questions = allQuestionsInOrder(state.answers);
+  if (state.step >= questions.length) {
+    renderResults();
+    return;
+  }
+  const q = questions[state.step];
+  const pct = Math.round((state.step / questions.length) * 100);
+  const isOptional = EXTRA_QUESTIONS.some((e) => e.id === q.id);
+
+  root.innerHTML = `
+    <h1>Borrower Copilot</h1>
+    <p class="sub">Answer honestly — every extra answer you give narrows your range. Skipping is fine; the app will just show a wider, lower-confidence estimate.</p>
+    <div class="progress"><div style="width:${pct}%"></div></div>
+    <div class="card">
+      <label>${q.label}</label>
+      ${q.why ? `<p class="why">Why we ask: ${q.why}</p>` : ""}
+      ${renderInput(q)}
+      <div class="nav">
+        <button id="back" ${state.step === 0 ? "disabled" : ""}>Back</button>
+        <div>
+          ${isOptional ? `<button class="skip" id="skip">Skip this</button>` : ""}
+          <button class="primary" id="next">${state.step === questions.length - 1 ? "See my results" : "Next"}</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  if (q.type === "select") {
+    root.querySelectorAll(".opt").forEach((el) => {
+      el.addEventListener("click", () => {
+        state.answers[q.id] = el.dataset.val;
+        root.querySelectorAll(".opt").forEach((o) => o.classList.remove("selected"));
+        el.classList.add("selected");
+      });
+    });
+  }
+
+  document.getElementById("back").addEventListener("click", () => { state.step = Math.max(0, state.step - 1); render(); });
+  document.getElementById("next").addEventListener("click", () => {
+    if (q.type !== "select") {
+      const val = document.getElementById("field").value;
+      state.answers[q.id] = val;
+    }
+    state.step++;
+    render();
+  });
+  const skipBtn = document.getElementById("skip");
+  if (skipBtn) skipBtn.addEventListener("click", () => { state.step++; render(); });
+}
+
+function renderInput(q) {
+  if (q.type === "select") {
+    return `<div class="opts">${q.options.map(([val, label]) =>
+      `<div class="opt ${state.answers[q.id] === val ? "selected" : ""}" data-val="${val}">${label}</div>`
+    ).join("")}</div>`;
+  }
+  return `<input id="field" type="${q.type}" value="${state.answers[q.id] ?? ""}" placeholder="Type here">`;
+}
+
+function verdictMeta(v) {
+  if (v === "BORROW") return { cls: "borrow", label: "You can borrow" };
+  if (v === "BORROW_LESS") return { cls: "less", label: "Borrow less than asked" };
+  return { cls: "dont", label: "Don't borrow right now" };
+}
+
+function renderResults() {
+  const r = computeResults(state.answers);
+  const vm = verdictMeta(r.verdict.verdict);
+  const confidenceNote = visibleExtraQuestions(state.answers).filter(q => state.answers[q.id] !== undefined && state.answers[q.id] !== "").length;
+  const totalExtra = visibleExtraQuestions(state.answers).length;
+
+  root.innerHTML = `
+    <h1>Your results</h1>
+    <p class="sub">Based on ${8 + confidenceNote} of your answers (${confidenceNote}/${totalExtra} optional questions answered — more answers would narrow these ranges further).</p>
+
+    <div class="out">
+      <span class="tag ${vm.cls}">${vm.label}</span>
+      <p class="reason">${r.verdict.reason}</p>
+    </div>
+
+    <div class="out">
+      <h2>How much (O2)</h2>
+      <div class="split">
+        <div><div class="label">A lender may sanction up to</div><div class="val">${inr(r.lenderMax)}</div></div>
+        <div><div class="label">You can safely carry</div><div class="val">${inr(r.safeMax)}</div></div>
+      </div>
+      <p class="reason">Use the <b>safe</b> number, not the lender number — it accounts for your rent/fixed costs and a buffer, which the lender's own limit ignores.</p>
+    </div>
+
+    <div class="out">
+      <h2>Fair interest rate (O3)</h2>
+      <div class="val">${r.rateBand[0]}% – ${r.rateBand[1]}%</div>
+      <p class="reason">Product: ${r.product.label}. All-in cost (APR incl. ~${(r.feePct*100).toFixed(1)}% processing fee): ${r.aprBand[0]}% – ${r.aprBand[1]}%.
+      ${r.lenderQuotedRate ? `A lender quoted you ${r.lenderQuotedRate}% — ${r.lenderQuotedRate > r.rateBand[1] ? "that's above your fair band, worth negotiating." : "that's within or below your fair band."}` : ""}</p>
+    </div>
+
+    <div class="out">
+      <h2>EMI to agree to (O4)</h2>
+      <div class="val">${inr(r.safeRoomEmi)}/month ceiling</div>
+      <p class="reason">Over ${r.tenureYears} years at ~${r.midRate.toFixed(1)}%. Stress test — if your income drops 15% <i>and</i> rates rise 2 points, your safe ceiling becomes ~${inr(r.stressSafeRoomEmi)}/month. Plan around the stressed number if your income is variable.</p>
+    </div>
+
+    <div class="neg">
+      <h2>Negotiation card — show this at the bank</h2>
+      <div class="row"><span>Verdict</span><b>${vm.label}</b></div>
+      <div class="row"><span>Fair amount to take</span><b>${inr(r.safeMax)}</b></div>
+      <div class="row"><span>Fair rate for your profile</span><b>${r.rateBand[0]}%–${r.rateBand[1]}%</b></div>
+      <div class="row"><span>All-in cost (APR)</span><b>${r.aprBand[0]}%–${r.aprBand[1]}%</b></div>
+      <div class="row"><span>Max monthly EMI</span><b>${inr(r.safeRoomEmi)}</b></div>
+      <div class="row"><span>Recommended product</span><b>${r.product.label}</b></div>
+    </div>
+
+    <div class="restart"><button id="restart">Start over</button></div>
+  `;
+  document.getElementById("restart").addEventListener("click", () => { state.answers = {}; state.step = 0; render(); });
+}
+
+render();
+</script>
+</body>
+</html>
